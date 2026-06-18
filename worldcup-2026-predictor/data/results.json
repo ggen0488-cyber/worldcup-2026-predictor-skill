@@ -1,0 +1,12 @@
+{
+  "_meta": "Completed real-world results. The engine LOCKS these by stage and pair, using them instead of simulated scores. Add entries as matches finish.",
+  "_format": "Each match: home/away are team CODES (see references/teams.json). hg/ag are goals. stage is one of GROUP/R32/R16/QF/SF/F.",
+  "_example": {
+    "home": "MEX",
+    "away": "CRO",
+    "hg": 1,
+    "ag": 2,
+    "stage": "GROUP"
+  },
+  "matches": []
+}
