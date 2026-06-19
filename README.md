@@ -24,6 +24,89 @@
 
 `worldcup-2026-predictor/` 是可移植的 skill 目录。你可以把它复制到兼容的 AI skill 运行环境，也可以直接在命令行运行其中的脚本。
 
+## 安装
+
+需要 Python 3.9+，脚本不依赖第三方库。安装时只复制 `worldcup-2026-predictor/` 这个目录；`data/live/` 是运行时缓存，不需要提交或分发。
+
+先克隆仓库：
+
+```bash
+git clone https://github.com/ggen0488-cyber/worldcup-2026-predictor-skill.git
+cd worldcup-2026-predictor-skill
+```
+
+### Codex
+
+推荐安装为用户级 skill，所有 Codex 项目都可用：
+
+```bash
+mkdir -p ~/.agents/skills
+cp -R worldcup-2026-predictor ~/.agents/skills/
+```
+
+也可以安装为项目级 skill，把目录复制到当前项目的 `.agents/skills/`：
+
+```bash
+mkdir -p .agents/skills
+cp -R worldcup-2026-predictor .agents/skills/
+```
+
+在 Codex 中可用 `$worldcup-2026-predictor` 显式调用，或直接提出“预测阿根廷 vs 巴西”等请求让 Agent 自动匹配。若新 skill 没出现，重启 Codex 会话。
+
+### Claude Code
+
+安装为个人 skill：
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R worldcup-2026-predictor ~/.claude/skills/
+```
+
+或安装为当前项目 skill：
+
+```bash
+mkdir -p .claude/skills
+cp -R worldcup-2026-predictor .claude/skills/
+```
+
+在 Claude Code 中可用 `/worldcup-2026-predictor` 调用，也可以用自然语言触发。Claude Code 会读取 skill 目录中的 `SKILL.md` 和附带资源。
+
+### OpenClaw
+
+安装到当前 OpenClaw workspace：
+
+```bash
+mkdir -p skills
+cp -R worldcup-2026-predictor skills/
+```
+
+安装为所有本机 OpenClaw agent 共享的 skill：
+
+```bash
+mkdir -p ~/.openclaw/skills
+cp -R worldcup-2026-predictor ~/.openclaw/skills/
+```
+
+也可以在克隆后的仓库中使用 OpenClaw CLI 安装本地目录：
+
+```bash
+openclaw skills install ./worldcup-2026-predictor --as worldcup-2026-predictor
+```
+
+### Windows PowerShell
+
+如果使用 PowerShell，把上面的 `mkdir -p` / `cp -R` 换成：
+
+```powershell
+git clone https://github.com/ggen0488-cyber/worldcup-2026-predictor-skill.git
+Set-Location worldcup-2026-predictor-skill
+
+New-Item -ItemType Directory -Force "$HOME\.agents\skills"
+Copy-Item -Recurse -Force ".\worldcup-2026-predictor" "$HOME\.agents\skills\"
+```
+
+把目标目录替换为 `$HOME\.claude\skills`、当前项目的 `.agents\skills` / `.claude\skills`，或 `$HOME\.openclaw\skills` 即可。
+
 ## 功能
 
 - 预测单场胜/平/负概率和最可能比分。
@@ -125,6 +208,89 @@ This project is not affiliated with, endorsed by, or sponsored by FIFA. Do not u
 ```
 
 The `worldcup-2026-predictor/` directory is the portable skill. Copy that directory into any compatible AI skill runtime or use the scripts directly from the command line.
+
+## Installation
+
+Requires Python 3.9+ and no third-party dependencies. Install by copying only the `worldcup-2026-predictor/` directory. `data/live/` is runtime cache and should not be committed or distributed.
+
+Clone the repository first:
+
+```bash
+git clone https://github.com/ggen0488-cyber/worldcup-2026-predictor-skill.git
+cd worldcup-2026-predictor-skill
+```
+
+### Codex
+
+Install as a user-level skill available to all Codex projects:
+
+```bash
+mkdir -p ~/.agents/skills
+cp -R worldcup-2026-predictor ~/.agents/skills/
+```
+
+Or install as a project-level skill:
+
+```bash
+mkdir -p .agents/skills
+cp -R worldcup-2026-predictor .agents/skills/
+```
+
+In Codex, invoke it explicitly with `$worldcup-2026-predictor`, or ask naturally for a World Cup prediction. Restart the Codex session if the new skill is not detected.
+
+### Claude Code
+
+Install as a personal skill:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R worldcup-2026-predictor ~/.claude/skills/
+```
+
+Or install as a project skill:
+
+```bash
+mkdir -p .claude/skills
+cp -R worldcup-2026-predictor .claude/skills/
+```
+
+In Claude Code, invoke it with `/worldcup-2026-predictor` or by natural language. Claude Code reads the `SKILL.md` file and bundled resources from the skill directory.
+
+### OpenClaw
+
+Install into the current OpenClaw workspace:
+
+```bash
+mkdir -p skills
+cp -R worldcup-2026-predictor skills/
+```
+
+Install as a machine-wide OpenClaw skill:
+
+```bash
+mkdir -p ~/.openclaw/skills
+cp -R worldcup-2026-predictor ~/.openclaw/skills/
+```
+
+You can also install the local skill directory with the OpenClaw CLI after cloning:
+
+```bash
+openclaw skills install ./worldcup-2026-predictor --as worldcup-2026-predictor
+```
+
+### Windows PowerShell
+
+If you use PowerShell, replace `mkdir -p` / `cp -R` with:
+
+```powershell
+git clone https://github.com/ggen0488-cyber/worldcup-2026-predictor-skill.git
+Set-Location worldcup-2026-predictor-skill
+
+New-Item -ItemType Directory -Force "$HOME\.agents\skills"
+Copy-Item -Recurse -Force ".\worldcup-2026-predictor" "$HOME\.agents\skills\"
+```
+
+Change the destination to `$HOME\.claude\skills`, project-local `.agents\skills` / `.claude\skills`, or `$HOME\.openclaw\skills` as needed.
 
 ## What It Does
 
