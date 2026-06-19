@@ -40,7 +40,7 @@ python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --factor
 ## 工作流程
 1. 判定用户要单场、小组、夺冠榜、淘汰赛路径，或是否明确要求玄学。
 2. 预测前由 Agent 主动查找官方或可靠来源，收集当前小组、赛程、已完赛比分和可用评级；不要把数据源硬编码进脚本。
-3. 将收集结果保存为本地快照：`data/live/teams.json` 使用 `references/teams.json` 的结构，`data/live/results.json` 使用 `data/results.json` 的结构，并在 `_meta` 记录来源 URL、采集时间和说明。
+3. 将收集结果保存为本地快照：`data/live/teams.json` 使用 `references/teams.json` 的结构，必须包含完整 48 队、A-L 12 组且每组 4 队；`data/live/results.json` 使用 `data/results.json` 的结构，并在 `_meta` 记录来源 URL、采集时间和说明。
 4. 调用脚本，脚本会优先读取 `data/live/` 快照；若没有 live 快照，则回退到样例数据。
 5. 保留脚本的中文概率表格，再补一两句精炼解读；如果用户强调足球偶然性，说明模型默认已考虑冷门路径。
 6. 涉及整届模拟时优先用 `--sims 10000`；需要快速反馈可降到 `2000`；需要复现时加 `--seed`。
@@ -50,6 +50,7 @@ python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --factor
 - 只说**概率**，不说"必胜/一定"；区分"理性"与"玄学"两类来源。
 - 明确足球单场随机性很高；强队高概率不等于稳胜，低概率队也有冷门路径。
 - `references/teams.json` 是可编辑离线样例快照；如果用户要求当前预测，先写入 `data/live/` 快照，不要把旧样例数据包装成实时预测。
+- 参赛队伍必须完整：48 队、12 组、每组 4 队。脚本会校验此条件，不得用残缺快照继续预测。
 - `data/live/results.json` 与 `data/results.json` 都会按阶段锁定真实比分；同两队在不同阶段再次交手时，不会复用旧阶段比分。
 - 玄学纯属娱乐，不得包装成可信预测。
 

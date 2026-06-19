@@ -28,6 +28,8 @@ AVG_GOALS = 2.6      # league-average total goals per match
 HOME_ADV = 0.35      # extra expected goals for a host nation
 SUP_SCALE = 120.0    # Elo points per ~1 goal of supremacy
 MAX_GOALS = 8        # truncation for the scoreline matrix
+EXPECTED_GROUPS = tuple("ABCDEFGHIJKL")
+EXPECTED_TEAMS = 48
 
 MATCH_SHOCK_SD = 0.28        # one-match form/tactics/noise shock
 PROBABILITY_SHRINK = 0.10    # shrink headline W/D/L odds toward a football baseline
@@ -42,8 +44,29 @@ def load_teams():
         with open(path, encoding="utf-8") as f:
             teams = json.load(f)["teams"]
         if teams:
+            validate_teams(teams, path)
             return teams
     raise SystemExit("❌ 未找到球队数据")
+
+def validate_teams(teams, source_path):
+    if len(teams) != EXPECTED_TEAMS:
+        raise SystemExit(f"❌ 参赛队伍不完整：{source_path} 中有 {len(teams)} 队，应为 {EXPECTED_TEAMS} 队")
+    groups = defaultdict(list)
+    for code, team in teams.items():
+        group = team.get("group")
+        if group not in EXPECTED_GROUPS:
+            raise SystemExit(f"❌ 球队 {code} 的小组无效：{group!r}，应为 A-L")
+        for field in ("name", "elo", "host", "color"):
+            if field not in team:
+                raise SystemExit(f"❌ 球队 {code} 缺少字段：{field}")
+        groups[group].append(code)
+    missing = [g for g in EXPECTED_GROUPS if g not in groups]
+    if missing:
+        raise SystemExit(f"❌ 缺少小组：{', '.join(missing)}")
+    bad = {g: codes for g, codes in groups.items() if len(codes) != 4}
+    if bad:
+        detail = "; ".join(f"{g}组={len(codes)}队({', '.join(codes)})" for g, codes in sorted(bad.items()))
+        raise SystemExit(f"❌ 小组队伍数量不完整：{detail}")
 
 def load_locked():
     idx = {}

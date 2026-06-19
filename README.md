@@ -77,6 +77,8 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 
 `data/live/teams.json` 格式与 `references/teams.json` 相同。`data/live/results.json` 格式与 `data/results.json` 相同。建议在 live 文件的 `_meta` 中记录来源 URL、采集时间和必要说明。
 
+预测脚本会校验参赛队伍完整性：必须是 48 队、A-L 共 12 个小组、每组 4 队。若 Agent 保存的 live 快照不完整，脚本会停止而不是继续模拟。
+
 `data/results.json` 用于保存已完赛赛果。赛果按阶段（`GROUP`、`R32`、`R16`、`QF`、`SF`、`F`）和球队组合锁定，因此同两队在后续阶段再次交手时不会复用早前比分。
 
 ## 玄学模式
@@ -167,6 +169,8 @@ Data collection is the AI Agent's responsibility and is not hardcoded to a singl
 `references/teams.json` is an editable offline sample snapshot, not an official real-time database. When `data/live/teams.json` and `data/live/results.json` exist, the prediction script prefers those Agent-saved snapshots; otherwise it falls back to the sample data.
 
 `data/live/teams.json` uses the same format as `references/teams.json`. `data/live/results.json` uses the same format as `data/results.json`. Include source URLs, collection time, and notes in `_meta` when saving live files.
+
+The prediction script validates team completeness: exactly 48 teams, 12 groups from A to L, and 4 teams per group. If an Agent-saved live snapshot is incomplete, the script stops instead of simulating from partial data.
 
 `data/results.json` stores completed match results. Results are locked by stage (`GROUP`, `R32`, `R16`, `QF`, `SF`, `F`) and team pair, so the same two teams can meet again in a later stage without reusing an earlier score.
 
