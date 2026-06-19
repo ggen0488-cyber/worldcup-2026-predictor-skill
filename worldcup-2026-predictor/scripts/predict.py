@@ -4,7 +4,7 @@
 2026 World Cup — rational prediction engine.
 
 Model:  Elo ratings -> goal supremacy -> football-randomness-adjusted Poisson scoreline -> Monte Carlo tournament.
-Real results in data/results.json are LOCKED by stage and pair.
+Real results in data/live/results.json or data/results.json are LOCKED by stage and pair.
 
 Usage:
   predict.py match  ARG BRA            # single match win/draw/loss + likely scores
@@ -21,6 +21,8 @@ from collections import defaultdict
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEAMS_PATH = os.path.join(BASE, "references", "teams.json")
 RESULTS_PATH = os.path.join(BASE, "data", "results.json")
+LIVE_TEAMS_PATH = os.path.join(BASE, "data", "live", "teams.json")
+LIVE_RESULTS_PATH = os.path.join(BASE, "data", "live", "results.json")
 
 AVG_GOALS = 2.6      # league-average total goals per match
 HOME_ADV = 0.35      # extra expected goals for a host nation
@@ -34,18 +36,25 @@ SHOCK_POINTS = [(-2.0, 0.0545), (-1.0, 0.2442), (0.0, 0.4026), (1.0, 0.2442), (2
 
 # ---------------------------------------------------------------- data loading
 def load_teams():
-    with open(TEAMS_PATH, encoding="utf-8") as f:
-        return json.load(f)["teams"]
+    for path in (LIVE_TEAMS_PATH, TEAMS_PATH):
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            teams = json.load(f)["teams"]
+        if teams:
+            return teams
+    raise SystemExit("❌ 未找到球队数据")
 
 def load_locked():
-    if not os.path.exists(RESULTS_PATH):
-        return {}
-    with open(RESULTS_PATH, encoding="utf-8") as f:
-        data = json.load(f)
     idx = {}
-    for m in data.get("matches", []):
-        stage = str(m.get("stage", "GROUP")).upper()
-        idx[(stage, frozenset((m["home"], m["away"])))] = (m["home"], m["hg"], m["ag"])
+    for path in (LIVE_RESULTS_PATH, RESULTS_PATH):
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        for m in data.get("matches", []):
+            stage = str(m.get("stage", "GROUP")).upper()
+            idx[(stage, frozenset((m["home"], m["away"])))] = (m["home"], m["hg"], m["ag"])
     return idx
 
 def locked_result(locked, stage, a, b):

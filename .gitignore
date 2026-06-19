@@ -8,6 +8,7 @@ __pycache__/
 .coverage
 htmlcov/
 tests/
+worldcup-2026-predictor/data/live/
 
 .venv/
 venv/

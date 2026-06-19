@@ -16,8 +16,8 @@
 - 明确足球随机性大；高概率只代表长期模拟优势，不代表单场确定。模型默认已纳入冷门和临场波动。
 - 区分"理性预测"与"玄学预测"，不可混淆来源。
 - 玄学结果必带娱乐免责声明。
-- `teams.json` 是可编辑离线快照；涉及最新小组、赛程、赛果时先核验并更新数据。
-- `results.json` 使用阶段锁定，阶段值为 `GROUP`/`R32`/`R16`/`QF`/`SF`/`F`。
+- 涉及最新小组、赛程、赛果时，由 Agent 先核验来源并保存 `data/live/teams.json` / `data/live/results.json`。
+- `data/live/results.json` 与 `data/results.json` 使用阶段锁定，阶段值为 `GROUP`/`R32`/`R16`/`QF`/`SF`/`F`。
 
 ## 常用调用速查
 ```bash

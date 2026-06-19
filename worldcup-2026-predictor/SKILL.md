@@ -1,6 +1,6 @@
 ---
 name: worldcup-2026-predictor
-description: Predict and simulate 2026 FIFA World Cup (USA/Canada/Mexico) matches, groups, champion odds, and knockout brackets with an offline Elo + football-randomness-adjusted Poisson + Monte Carlo model. Use when the user asks to predict "X vs Y", scorelines, group advancement, "谁会赢/谁会夺冠", tournament simulations, bracket paths, football randomness/upset scenarios, or for-entertainment 算卦/玄学 predictions. Supports editable team ratings, stage-aware real-result locking, best-third-place advancement, built-in upset variance, and optional I Ching/Five Elements/zodiac/numerology output.
+description: Predict and simulate 2026 FIFA World Cup (USA/Canada/Mexico) matches, groups, champion odds, and knockout brackets after the AI Agent collects and saves current data snapshots. Use when the user asks to predict "X vs Y", scorelines, group advancement, "谁会赢/谁会夺冠", tournament simulations, bracket paths, football randomness/upset scenarios, or for-entertainment 算卦/玄学 predictions. Supports Agent-supplied live data, editable team ratings, stage-aware real-result locking, best-third-place advancement, built-in upset variance, and optional I Ching/Five Elements/zodiac/numerology output.
 ---
 
 # 2026 世界杯预测 ⚽🔮
@@ -27,6 +27,7 @@ python3 "$SKILL_DIR/scripts/predict.py" bracket --seed 7
 - `champion`/`group` 可调 `--sims`；`--seed` 用于复现；单场加 `--neutral` 可去掉东道主加成。
 - 足球偶然性已默认进入模型：泊松比分抽样 + 单场状态冲击 + 胜平负概率收缩，不需要额外参数。
 - `bracket` 输出一次抽样的每轮淘汰赛路径，当前使用简化蛇形种子对阵，非 FIFA 官方槽位映射。
+- 预测脚本不联网抓数据；若存在 `data/live/teams.json` 或 `data/live/results.json`，会优先读取这些由 Agent 保存的快照。
 
 ### 玄学模式（需用户主动开启）
 ```bash
@@ -38,17 +39,18 @@ python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --factor
 
 ## 工作流程
 1. 判定用户要单场、小组、夺冠榜、淘汰赛路径，或是否明确要求玄学。
-2. 如果用户问“今天/最新/当前赛果/真实小组”，先查最新官方或可靠来源；必要时更新 `references/teams.json` 或 `data/results.json` 后再运行。
-3. 直接调用脚本，保留脚本的中文概率表格，再补一两句精炼解读；如果用户强调足球偶然性，说明模型默认已考虑冷门路径。
-4. 涉及整届模拟时优先用 `--sims 10000`；需要快速反馈可降到 `2000`；需要复现时加 `--seed`。
-5. 若用户提供已完赛赛果，写入 `data/results.json`，使用球队代码和阶段（`GROUP`/`R32`/`R16`/`QF`/`SF`/`F`），再重跑。
+2. 预测前由 Agent 主动查找官方或可靠来源，收集当前小组、赛程、已完赛比分和可用评级；不要把数据源硬编码进脚本。
+3. 将收集结果保存为本地快照：`data/live/teams.json` 使用 `references/teams.json` 的结构，`data/live/results.json` 使用 `data/results.json` 的结构，并在 `_meta` 记录来源 URL、采集时间和说明。
+4. 调用脚本，脚本会优先读取 `data/live/` 快照；若没有 live 快照，则回退到样例数据。
+5. 保留脚本的中文概率表格，再补一两句精炼解读；如果用户强调足球偶然性，说明模型默认已考虑冷门路径。
+6. 涉及整届模拟时优先用 `--sims 10000`；需要快速反馈可降到 `2000`；需要复现时加 `--seed`。
 
 ## 重要约束
 - 不得暗示这是 FIFA 官方工具；不要使用 FIFA 官方 logo、赛事视觉、字体或其他受保护品牌资产。
 - 只说**概率**，不说"必胜/一定"；区分"理性"与"玄学"两类来源。
 - 明确足球单场随机性很高；强队高概率不等于稳胜，低概率队也有冷门路径。
-- `references/teams.json` 是可编辑离线快照；如果它与真实抽签、赛程、赛果不一致，先更新数据，不要把旧数据包装成实时预测。
-- `data/results.json` 会按阶段锁定真实比分；同两队在不同阶段再次交手时，不会复用旧阶段比分。
+- `references/teams.json` 是可编辑离线样例快照；如果用户要求当前预测，先写入 `data/live/` 快照，不要把旧样例数据包装成实时预测。
+- `data/live/results.json` 与 `data/results.json` 都会按阶段锁定真实比分；同两队在不同阶段再次交手时，不会复用旧阶段比分。
 - 玄学纯属娱乐，不得包装成可信预测。
 
 ## 参考文档（按需阅读）
