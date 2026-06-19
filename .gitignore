@@ -9,6 +9,7 @@ __pycache__/
 htmlcov/
 tests/
 worldcup-2026-predictor/data/live/
+worldcup-2026-predictor/reports/
 
 .venv/
 venv/

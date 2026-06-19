@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-2026 World Cup — 玄学预测引擎 🔮  （仅供娱乐）
+2026 World Cup — 玄学预测引擎 🔮
 
 四术合参：周易六十四卦 · 五行生克 · 生肖纪年 · 数字命理。
 起卦以"对战双方 + 日期"为引子，结果可复现（同输入同卦象）。
@@ -270,7 +270,7 @@ def render(teams, a, b, date, items, hmap, context=None):
     print(f"【综合】{verdict}")
     print(f"        气运修正因子 = {factor:+.3f}（利{na}为正，约 ±5% 上限）")
     print("=" * 44)
-    print("⚠️  玄学预测仅供娱乐，认真你就输了。\n")
+    print()
     return factor
 
 # ---------------------------------------------------------------- main

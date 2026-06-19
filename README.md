@@ -4,7 +4,7 @@
 
 一个开源、平台中立的 AI skill，用于 2026 世界杯概率预测。
 
-本项目用于在 AI Agent 收集并保存赛程/赛果数据和赛前情报后，结合可编辑的 Elo 风格球队评级、默认考虑足球偶然性的泊松比分模型，以及蒙特卡洛整届赛事模拟进行预测。它还包含一个可选的、仅供娱乐的玄学模式。
+本项目用于在 AI Agent 收集并保存赛程/赛果数据和赛前情报后，结合可编辑的 Elo 风格球队评级、默认考虑足球偶然性的泊松比分模型，以及蒙特卡洛整届赛事模拟进行预测。它还包含一个可选的玄学趣味模式。
 
 本项目不是 FIFA 官方项目，不与 FIFA 存在隶属、认可或赞助关系。请勿在本项目中使用 FIFA 标志、官方视觉、官方字体或其他受保护品牌资产。
 
@@ -110,14 +110,17 @@ Copy-Item -Recurse -Force ".\worldcup-2026-predictor" "$HOME\.agents\skills\"
 ## 功能
 
 - 预测单场胜/平/负概率和最可能比分。
+- 按赛制区分积分赛和淘汰赛：积分赛展示胜/平/负和比分，淘汰赛展示晋级方、常规时间比分和点球路径。
 - 模拟小组晋级概率，包含 8 个最佳第三名。
 - 模拟夺冠、进决赛、进四强、进八强、晋级 32 强概率。
+- 输出某支球队的完整晋级路线概率和每轮常见潜在对手。
 - 生成一次抽样的淘汰赛路径。
 - 从 `data/results.json` 锁定真实已完赛赛果。
 - 优先读取 AI Agent 保存到 `data/live/` 的最新数据快照。
 - 读取 AI Agent 保存的赛前情报快照，用伤停、阵容、近期状态、赛程体能、战术对位等信息做有界修正。
+- 引导 AI Agent 将最终预测结果生成为自包含本地 HTML 报告，首屏构建球场和真实比分牌风格预测展示，并自动在浏览器打开。
 - 玄学模式可读取 AI Agent 保存的起卦背景快照，用比赛日期、地点、颜色象意和用户问题确定娱乐语境。
-- 可选输出仅供娱乐的玄学预测。
+- 可选输出玄学趣味预测。
 
 ## 快速开始
 
@@ -129,6 +132,7 @@ SKILL_DIR=worldcup-2026-predictor
 python "$SKILL_DIR/scripts/predict.py" match ARG BRA --seed 7
 python "$SKILL_DIR/scripts/predict.py" group C --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" champion --sims 10000 --seed 7
+python "$SKILL_DIR/scripts/predict.py" route ARG --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" bracket --seed 7
 python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 ```
@@ -173,9 +177,17 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 
 `data/results.json` 用于保存已完赛赛果。赛果按阶段（`GROUP`、`R32`、`R16`、`QF`、`SF`、`F`）和球队组合锁定，因此同两队在后续阶段再次交手时不会复用早前比分。
 
+## HTML 报告
+
+预测完成后，Agent 应根据脚本输出和收集到的情报直接生成一个自包含 HTML 文件，默认保存到 `worldcup-2026-predictor/reports/` 并自动用默认浏览器打开。HTML 报告首屏应构建一个非品牌化球场场景，并用真实球场/转播比分牌风格突出显示概率最高的主预测结果、主预测比分和预测时间。报告还应展示比分分布 Top 5、预期进球、预测原因说明、赛前情报、战术对位、场景推演、来源和不确定性说明；如果包含玄学内容，必须与理性预测分区，讲清本卦、变卦、变爻、五行/生肖/命理、气运因子和断语原因。
+
+如果单一最高概率比分与最高概率赛果方向不一致，报告必须把最高概率赛果方向作为主预测结果，比分分布作为参考展示，不能给出两套互相冲突的主预测。
+
+本项目不提供 HTML 生成脚本，报告由 Agent 按 `worldcup-2026-predictor/references/html_report.md` 的文字规范生成。`reports/` 是运行产物，已在 `.gitignore` 中忽略。
+
 ## 玄学模式
 
-玄学模式是可选功能，仅供娱乐。除非用户明确要求，否则默认理性模型不会使用玄学结果。
+玄学模式是可选功能。除非用户明确要求，否则默认理性模型不会使用玄学结果。
 
 ## 许可证
 
@@ -189,7 +201,7 @@ MIT License。见 `LICENSE`。
 
 An open, platform-neutral AI skill for probabilistic 2026 World Cup predictions.
 
-After an AI Agent collects and saves schedule/result data and pre-match intelligence, this project combines editable Elo-style team ratings, a football-randomness-adjusted Poisson score model, and Monte Carlo tournament simulation. It also includes an optional entertainment-only divination mode.
+After an AI Agent collects and saves schedule/result data and pre-match intelligence, this project combines editable Elo-style team ratings, a football-randomness-adjusted Poisson score model, and Monte Carlo tournament simulation. It also includes an optional divination mode.
 
 This project is not affiliated with, endorsed by, or sponsored by FIFA. Do not use FIFA logos, official artwork, official fonts, or other protected brand assets with this project.
 
@@ -295,14 +307,17 @@ Change the destination to `$HOME\.claude\skills`, project-local `.agents\skills`
 ## What It Does
 
 - Predict single-match win/draw/loss probabilities and likely scorelines.
+- Distinguish points-format matches from knockout matches: points matches show win/draw/loss and score; knockout matches show advancement, regulation score, and penalty path.
 - Simulate group advancement, including the 8 best third-placed teams.
 - Simulate champion, finalist, semifinal, quarterfinal, and Round-of-32 odds.
+- Output one team's full route probabilities and common potential opponents by round.
 - Generate one sampled knockout bracket path.
 - Lock real completed results from `data/results.json`.
 - Prefer fresh snapshots saved by an AI Agent under `data/live/`.
 - Read Agent-saved pre-match intelligence snapshots for bounded adjustments based on injuries, lineups, form, rest, tactics, and related context.
+- Guide the AI Agent to turn the final prediction into a self-contained local HTML report with a stadium scene and realistic scoreboard-style prediction display, then open it in the browser.
 - Let divination mode read Agent-saved context snapshots for match date, venue, colors/symbols, and user question as entertainment framing.
-- Optionally run entertainment-only divination output.
+- Optionally run divination-style prediction output.
 
 ## Quick Start
 
@@ -314,6 +329,7 @@ SKILL_DIR=worldcup-2026-predictor
 python "$SKILL_DIR/scripts/predict.py" match ARG BRA --seed 7
 python "$SKILL_DIR/scripts/predict.py" group C --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" champion --sims 10000 --seed 7
+python "$SKILL_DIR/scripts/predict.py" route ARG --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" bracket --seed 7
 python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 ```
@@ -357,6 +373,14 @@ Divination mode can also use Agent-collected context. Before a current divinatio
 The prediction script validates team completeness: exactly 48 teams, 12 groups from A to L, and 4 teams per group. If an Agent-saved live snapshot is incomplete, the script stops instead of simulating from partial data.
 
 `data/results.json` stores completed match results. Results are locked by stage (`GROUP`, `R32`, `R16`, `QF`, `SF`, `F`) and team pair, so the same two teams can meet again in a later stage without reusing an earlier score.
+
+## HTML Report
+
+After prediction, the Agent should directly generate a self-contained HTML file from the script output and collected intelligence, save it under `worldcup-2026-predictor/reports/`, and open it in the default browser. The first viewport should build a non-branded stadium scene and use a realistic stadium/broadcast scoreboard style to highlight the highest-probability main outcome, main score, and prediction time. The report should also show Top 5 score distribution, expected goals, prediction rationale, pre-match intelligence, tactical matchup, scenario paths, sources, and uncertainty notes. If divination content is included, it must be separated from rational prediction and explain the primary hexagram, changed hexagram, changing lines, Five Elements/zodiac/numerology signals, fortune factor, and reasoning behind the reading.
+
+If the single most likely score differs from the highest-probability outcome direction, the report must highlight the outcome direction as the main prediction and show scorelines only as distribution references.
+
+This project does not provide an HTML generation script. The report is generated by the Agent following `worldcup-2026-predictor/references/html_report.md`. `reports/` is runtime output and is ignored by `.gitignore`.
 
 ## Divination Mode
 
