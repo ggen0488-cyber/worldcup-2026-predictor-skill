@@ -4,7 +4,7 @@
 
 一个开源、平台中立的 AI skill，用于 2026 世界杯概率预测。
 
-本项目用于在 AI Agent 收集并保存赛程/赛果数据后，结合可编辑的 Elo 风格球队评级、默认考虑足球偶然性的泊松比分模型，以及蒙特卡洛整届赛事模拟进行预测。它还包含一个可选的、仅供娱乐的玄学模式。
+本项目用于在 AI Agent 收集并保存赛程/赛果数据和赛前情报后，结合可编辑的 Elo 风格球队评级、默认考虑足球偶然性的泊松比分模型，以及蒙特卡洛整届赛事模拟进行预测。它还包含一个可选的、仅供娱乐的玄学模式。
 
 本项目不是 FIFA 官方项目，不与 FIFA 存在隶属、认可或赞助关系。请勿在本项目中使用 FIFA 标志、官方视觉、官方字体或其他受保护品牌资产。
 
@@ -32,6 +32,8 @@
 - 生成一次抽样的淘汰赛路径。
 - 从 `data/results.json` 锁定真实已完赛赛果。
 - 优先读取 AI Agent 保存到 `data/live/` 的最新数据快照。
+- 读取 AI Agent 保存的赛前情报快照，用伤停、阵容、近期状态、赛程体能、战术对位等信息做有界修正。
+- 玄学模式可读取 AI Agent 保存的起卦背景快照，用比赛日期、地点、颜色象意和用户问题确定娱乐语境。
 - 可选输出仅供娱乐的玄学预测。
 
 ## 快速开始
@@ -56,6 +58,7 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 
 ```text
 可编辑 Elo 风格评级
+  -> Agent 赛前情报修正
   -> 预期进球
   -> 默认考虑足球偶然性的泊松比分模型
   -> 蒙特卡洛整届赛事模拟
@@ -73,9 +76,15 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 
 数据收集由 AI Agent 负责，不在脚本中写死单一数据源。预测前，Agent 应从官方或可靠来源检索当前小组、赛程、赛果和可用评级，并将标准化快照保存到 `data/live/`。`data/live/` 是本地生成缓存，已在 `.gitignore` 中忽略，不会提交到 GitHub。
 
+当前单场预测前，Agent 还应从多个方面收集两队赛前情报，例如伤停/停赛、预计首发、近期状态、赛程体能、场地天气、战术对位、比赛动机、赔率或评级变化，并保存为 `data/live/intelligence.json`。该快照只提供有界修正，不能消除足球比赛本身的随机性。
+
+如果无法获得足够新的来源，应明确说明情报不足，只能基于已有快照或样例做离线演示，不要把旧数据包装成实时分析。
+
+玄学模式也可以使用 Agent 收集的背景资料。当前玄学预测前，Agent 可保存 `data/live/divination_context.json`，包含比赛日期、开球时间、举办城市、场地、双方颜色/象征、用户问题和来源。该快照只用于起卦语境和展示，不证明玄学预测可靠。
+
 `references/teams.json` 是可编辑的离线样例快照，不是官方实时数据库。存在 `data/live/teams.json` 和 `data/live/results.json` 时，预测脚本会优先读取这些 Agent 保存的快照；否则回退到样例数据。
 
-`data/live/teams.json` 格式与 `references/teams.json` 相同。`data/live/results.json` 格式与 `data/results.json` 相同。建议在 live 文件的 `_meta` 中记录来源 URL、采集时间和必要说明。
+`data/live/teams.json` 格式与 `references/teams.json` 相同。`data/live/results.json` 格式与 `data/results.json` 相同。`data/live/intelligence.json` 格式见 `worldcup-2026-predictor/references/intelligence.md`。`data/live/divination_context.json` 格式见 `worldcup-2026-predictor/references/divination.md`。建议在 live 文件的 `_meta` 中记录来源 URL、采集时间和必要说明。
 
 预测脚本会校验参赛队伍完整性：必须是 48 队、A-L 共 12 个小组、每组 4 队。若 Agent 保存的 live 快照不完整，脚本会停止而不是继续模拟。
 
@@ -97,7 +106,7 @@ MIT License。见 `LICENSE`。
 
 An open, platform-neutral AI skill for probabilistic 2026 World Cup predictions.
 
-After an AI Agent collects and saves schedule/result data, this project combines editable Elo-style team ratings, a football-randomness-adjusted Poisson score model, and Monte Carlo tournament simulation. It also includes an optional entertainment-only divination mode.
+After an AI Agent collects and saves schedule/result data and pre-match intelligence, this project combines editable Elo-style team ratings, a football-randomness-adjusted Poisson score model, and Monte Carlo tournament simulation. It also includes an optional entertainment-only divination mode.
 
 This project is not affiliated with, endorsed by, or sponsored by FIFA. Do not use FIFA logos, official artwork, official fonts, or other protected brand assets with this project.
 
@@ -125,6 +134,8 @@ The `worldcup-2026-predictor/` directory is the portable skill. Copy that direct
 - Generate one sampled knockout bracket path.
 - Lock real completed results from `data/results.json`.
 - Prefer fresh snapshots saved by an AI Agent under `data/live/`.
+- Read Agent-saved pre-match intelligence snapshots for bounded adjustments based on injuries, lineups, form, rest, tactics, and related context.
+- Let divination mode read Agent-saved context snapshots for match date, venue, colors/symbols, and user question as entertainment framing.
 - Optionally run entertainment-only divination output.
 
 ## Quick Start
@@ -149,6 +160,7 @@ The default rational model is:
 
 ```text
 editable Elo-style ratings
+  -> Agent pre-match intelligence adjustment
   -> expected goals
   -> football-randomness-adjusted Poisson score model
   -> Monte Carlo tournament simulation
@@ -166,9 +178,15 @@ The model outputs probabilities, not certainties. A high-probability team can st
 
 Data collection is the AI Agent's responsibility and is not hardcoded to a single source in the scripts. Before prediction, the Agent should collect current groups, fixtures, results, and usable ratings from official or reliable sources, then save a normalized snapshot under `data/live/`. `data/live/` is generated local cache and is ignored by `.gitignore`.
 
+Before a current single-match prediction, the Agent should also collect pre-match intelligence across team availability, likely lineups, recent form, rest/travel load, venue/weather, tactical matchup, match incentives, and market/rating movement, then save it as `data/live/intelligence.json`. This snapshot provides bounded adjustments only; it does not remove football randomness.
+
+If sufficiently fresh sources are unavailable, say so explicitly and treat the output as an offline demo based on existing snapshots or samples, not as real-time analysis.
+
+Divination mode can also use Agent-collected context. Before a current divination request, the Agent may save `data/live/divination_context.json` with match date, kickoff time, host city, venue, team colors/symbols, user question, and sources. This snapshot is only for casting context and display; it does not make divination reliable.
+
 `references/teams.json` is an editable offline sample snapshot, not an official real-time database. When `data/live/teams.json` and `data/live/results.json` exist, the prediction script prefers those Agent-saved snapshots; otherwise it falls back to the sample data.
 
-`data/live/teams.json` uses the same format as `references/teams.json`. `data/live/results.json` uses the same format as `data/results.json`. Include source URLs, collection time, and notes in `_meta` when saving live files.
+`data/live/teams.json` uses the same format as `references/teams.json`. `data/live/results.json` uses the same format as `data/results.json`. `data/live/intelligence.json` is documented in `worldcup-2026-predictor/references/intelligence.md`. `data/live/divination_context.json` is documented in `worldcup-2026-predictor/references/divination.md`. Include source URLs, collection time, and notes in `_meta` when saving live files.
 
 The prediction script validates team completeness: exactly 48 teams, 12 groups from A to L, and 4 teams per group. If an Agent-saved live snapshot is incomplete, the script stops instead of simulating from partial data.
 

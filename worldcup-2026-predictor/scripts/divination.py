@@ -5,6 +5,7 @@
 
 四术合参：周易六十四卦 · 五行生克 · 生肖纪年 · 数字命理。
 起卦以"对战双方 + 日期"为引子，结果可复现（同输入同卦象）。
+可读取 data/live/divination_context.json 中由 Agent 保存的起卦背景。
 
 Usage:
   divination.py ARG BRA              # 纯玄学：摇卦断吉凶
@@ -18,6 +19,7 @@ import json, math, argparse, os, hashlib
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEAMS_PATH = os.path.join(BASE, "references", "teams.json")
 HEX_PATH = os.path.join(BASE, "references", "hexagrams.json")
+LIVE_DIVINATION_CONTEXT_PATH = os.path.join(BASE, "data", "live", "divination_context.json")
 
 DEFAULT_DATE = "0617"   # 参考日，可被 --date 覆盖
 
@@ -43,6 +45,20 @@ def load_hex():
         items = json.load(f)["hexagrams"]
     return items, {h["lines"]: h for h in items}
 
+def load_divination_context():
+    if not os.path.exists(LIVE_DIVINATION_CONTEXT_PATH):
+        return {}
+    try:
+        with open(LIVE_DIVINATION_CONTEXT_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"❌ 玄学起卦背景快照不是有效 JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit("❌ 玄学起卦背景快照格式错误：顶层必须是对象")
+    if "matches" in data and not isinstance(data["matches"], list):
+        raise SystemExit("❌ 玄学起卦背景快照格式错误：matches 必须是数组")
+    return data
+
 def resolve(teams, key):
     k = str(key).strip(); kl = k.lower()
     for code, t in teams.items():
@@ -58,6 +74,48 @@ def cn(teams, code):
 
 def element_of(teams, code):
     return COLOR_ELEMENT.get(teams[code].get("color", ""), "土")
+
+def normalize_notes(value, limit=4):
+    if isinstance(value, str):
+        notes = [value]
+    elif isinstance(value, list):
+        notes = value
+    else:
+        notes = []
+    return [str(n).strip() for n in notes if str(n).strip()][:limit]
+
+def match_divination_context(context, a, b):
+    if not context:
+        return {}
+    items = context.get("matches")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            codes = [str(code).upper() for code in item.get("teams", []) if code]
+            if len(codes) == 2 and set(codes) == {a, b}:
+                return item
+        return {}
+    codes = [str(code).upper() for code in context.get("teams", []) if code]
+    if len(codes) == 2 and set(codes) == {a, b}:
+        return context
+    return {}
+
+def normalize_date(value):
+    text = "".join(c for c in str(value or "") if c.isdigit())
+    if len(text) >= 8 and text[:2] in ("19", "20"):
+        return text[4:8]
+    if len(text) >= 8:
+        return text[-4:]
+    if len(text) == 4:
+        return text
+    return DEFAULT_DATE
+
+def context_date(match_context):
+    for key in ("divination_date", "date", "match_date", "kickoff_date", "kickoff_time"):
+        if match_context.get(key):
+            return normalize_date(match_context.get(key))
+    return DEFAULT_DATE
 
 # ---------------------------------------------------------------- 起卦
 def _rng_bytes(seed_str):
@@ -147,13 +205,44 @@ def qi_factor(teams, a, b, date, hmap):
     return factor, dict(lines=lines, bian=bian, changing=changing,
                         ben=ben, bh=bh, ea=ea, eb=eb)
 
-def render(teams, a, b, date, items, hmap):
+def render_context(teams, a, b, context):
+    if not context:
+        return
+    lines = []
+    question = context.get("question") or context.get("prompt")
+    if question:
+        lines.append(f"问事：{question}")
+    venue_parts = []
+    for key in ("city", "venue", "stadium"):
+        if context.get(key):
+            venue_parts.append(str(context[key]))
+    if venue_parts:
+        lines.append("地点：" + " · ".join(venue_parts))
+    kickoff = context.get("kickoff_time") or context.get("match_time") or context.get("date")
+    if kickoff:
+        lines.append(f"时间：{kickoff}")
+    symbols = context.get("symbols", {})
+    if isinstance(symbols, dict):
+        for code in (a, b):
+            values = symbols.get(code)
+            if isinstance(values, list):
+                values = "、".join(str(v) for v in values[:3])
+            if values:
+                lines.append(f"{cn(teams, code)}象意：{values}")
+    lines.extend(normalize_notes(context.get("notes"), limit=3))
+    if lines:
+        print("【起卦背景】")
+        for line in lines[:8]:
+            print(f"        {line}")
+
+def render(teams, a, b, date, items, hmap, context=None):
     na, nb = cn(teams, a), cn(teams, b)
     factor, d = qi_factor(teams, a, b, date, hmap)
     ben, bh = d["ben"], d["bh"]
     ea, eb = d["ea"], d["eb"]
     print(f"\n🔮 玄学卜算  {na}  vs  {nb}   （引子日期 {date}）")
     print("=" * 44)
+    render_context(teams, a, b, context or {})
     # 1 周易
     chg = "、".join(f"第{p+1}爻" for p in d["changing"]) if d["changing"] else "无（静卦）"
     print(f"【周易】本卦 {ben['sym']} {ben['name']}卦 —— {ben['judge']}")
@@ -189,17 +278,19 @@ def main():
     p = argparse.ArgumentParser(description="2026 World Cup 玄学预测 🔮")
     p.add_argument("team_a")
     p.add_argument("team_b")
-    p.add_argument("--date", default=DEFAULT_DATE, help="MMDD，影响起卦，默认 0617")
+    p.add_argument("--date", default=None, help="MMDD，影响起卦；未传时优先使用 Agent 起卦背景快照，否则默认 0617")
     p.add_argument("--factor", action="store_true", help="只打印气运修正因子")
     args = p.parse_args()
     teams = load_teams()
     items, hmap = load_hex()
     a = resolve(teams, args.team_a); b = resolve(teams, args.team_b)
+    context = match_divination_context(load_divination_context(), a, b)
+    date = normalize_date(args.date) if args.date else context_date(context)
     if args.factor:
-        f, _ = qi_factor(teams, a, b, args.date, hmap)
+        f, _ = qi_factor(teams, a, b, date, hmap)
         print(f"{f:+.4f}")
     else:
-        render(teams, a, b, args.date, items, hmap)
+        render(teams, a, b, date, items, hmap, context)
 
 if __name__ == "__main__":
     main()

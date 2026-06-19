@@ -3,7 +3,8 @@
 """
 2026 World Cup — rational prediction engine.
 
-Model:  Elo ratings -> goal supremacy -> football-randomness-adjusted Poisson scoreline -> Monte Carlo tournament.
+Model:  Elo ratings -> Agent-supplied pre-match intelligence -> goal supremacy
+        -> football-randomness-adjusted Poisson scoreline -> Monte Carlo tournament.
 Real results in data/live/results.json or data/results.json are LOCKED by stage and pair.
 
 Usage:
@@ -23,6 +24,7 @@ TEAMS_PATH = os.path.join(BASE, "references", "teams.json")
 RESULTS_PATH = os.path.join(BASE, "data", "results.json")
 LIVE_TEAMS_PATH = os.path.join(BASE, "data", "live", "teams.json")
 LIVE_RESULTS_PATH = os.path.join(BASE, "data", "live", "results.json")
+LIVE_INTELLIGENCE_PATH = os.path.join(BASE, "data", "live", "intelligence.json")
 
 AVG_GOALS = 2.6      # league-average total goals per match
 HOME_ADV = 0.35      # extra expected goals for a host nation
@@ -30,11 +32,22 @@ SUP_SCALE = 120.0    # Elo points per ~1 goal of supremacy
 MAX_GOALS = 8        # truncation for the scoreline matrix
 EXPECTED_GROUPS = tuple("ABCDEFGHIJKL")
 EXPECTED_TEAMS = 48
+MAX_ELO_INTEL_DELTA = 80.0
+MAX_GOAL_INTEL_DELTA = 0.35
 
 MATCH_SHOCK_SD = 0.28        # one-match form/tactics/noise shock
 PROBABILITY_SHRINK = 0.10    # shrink headline W/D/L odds toward a football baseline
 NEUTRAL_OUTCOME = (0.37, 0.26, 0.37)
 SHOCK_POINTS = [(-2.0, 0.0545), (-1.0, 0.2442), (0.0, 0.4026), (1.0, 0.2442), (2.0, 0.0545)]
+
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+def as_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 # ---------------------------------------------------------------- data loading
 def load_teams():
@@ -80,6 +93,77 @@ def load_locked():
             idx[(stage, frozenset((m["home"], m["away"])))] = (m["home"], m["hg"], m["ag"])
     return idx
 
+def load_intelligence():
+    if not os.path.exists(LIVE_INTELLIGENCE_PATH):
+        return {}
+    try:
+        with open(LIVE_INTELLIGENCE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"❌ 赛前情报快照不是有效 JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit("❌ 赛前情报快照格式错误：顶层必须是对象")
+    if "teams" in data and not isinstance(data["teams"], dict):
+        raise SystemExit("❌ 赛前情报快照格式错误：teams 必须是对象")
+    if "matches" in data and not isinstance(data["matches"], list):
+        raise SystemExit("❌ 赛前情报快照格式错误：matches 必须是数组")
+    return data
+
+def normalize_notes(value, limit=3):
+    if isinstance(value, str):
+        notes = [value]
+    elif isinstance(value, list):
+        notes = value
+    else:
+        notes = []
+    return [str(n).strip() for n in notes if str(n).strip()][:limit]
+
+def apply_intelligence_to_teams(teams, intelligence):
+    """Apply bounded team-level Agent intelligence without mutating the source data."""
+    adjusted = {code: dict(team) for code, team in teams.items()}
+    for code, context in intelligence.get("teams", {}).items():
+        code = str(code).upper()
+        if code not in adjusted or not isinstance(context, dict):
+            continue
+        delta = clamp(as_float(context.get("elo_delta")), -MAX_ELO_INTEL_DELTA, MAX_ELO_INTEL_DELTA)
+        if abs(delta) > 0.001:
+            adjusted[code]["elo"] = as_float(adjusted[code].get("elo")) + delta
+            adjusted[code]["_intel_elo_delta"] = delta
+        notes = normalize_notes(context.get("notes"))
+        if notes:
+            adjusted[code]["_intel_notes"] = notes
+    return adjusted
+
+def match_intelligence(intelligence, a, b):
+    empty = {"confidence": 1.0, "goal_delta": {a: 0.0, b: 0.0}, "factors": [], "notes": []}
+    for item in intelligence.get("matches", []):
+        if not isinstance(item, dict):
+            continue
+        raw_teams = item.get("teams")
+        if not isinstance(raw_teams, list):
+            raw_teams = [item.get("team_a"), item.get("team_b")]
+        codes = [str(code).upper() for code in raw_teams if code]
+        if len(codes) != 2 or set(codes) != {a, b}:
+            continue
+        confidence = clamp(as_float(item.get("confidence"), 1.0), 0.0, 1.0)
+        raw_goal_delta = item.get("goal_delta", {})
+        if not isinstance(raw_goal_delta, dict):
+            raw_goal_delta = {}
+        goal_delta = {}
+        for code in (a, b):
+            raw_delta = as_float(raw_goal_delta.get(code))
+            goal_delta[code] = clamp(raw_delta, -MAX_GOAL_INTEL_DELTA, MAX_GOAL_INTEL_DELTA) * confidence
+        factors = item.get("factors", [])
+        if not isinstance(factors, list):
+            factors = []
+        return {
+            "confidence": confidence,
+            "goal_delta": goal_delta,
+            "factors": factors[:6],
+            "notes": normalize_notes(item.get("notes"), limit=4),
+        }
+    return empty
+
 def locked_result(locked, stage, a, b):
     return locked.get((stage.upper(), frozenset((a, b))))
 
@@ -98,12 +182,12 @@ def cn(teams, code):
     return teams[code].get("name_cn", code)
 
 # ---------------------------------------------------------------- poisson core
-def expected_goals(teams, a, b, host_a=None, host_b=None):
+def expected_goals(teams, a, b, host_a=None, host_b=None, goal_delta_a=0.0, goal_delta_b=0.0):
     if host_a is None: host_a = teams[a].get("host", False)
     if host_b is None: host_b = teams[b].get("host", False)
     sup = (teams[a]["elo"] - teams[b]["elo"]) / SUP_SCALE
-    la = AVG_GOALS / 2 + sup / 2 + (HOME_ADV if host_a else 0)
-    lb = AVG_GOALS / 2 - sup / 2 + (HOME_ADV if host_b else 0)
+    la = AVG_GOALS / 2 + sup / 2 + (HOME_ADV if host_a else 0) + goal_delta_a
+    lb = AVG_GOALS / 2 - sup / 2 + (HOME_ADV if host_b else 0) + goal_delta_b
     return max(0.15, la), max(0.15, lb)
 
 def _pmf(k, lam):
@@ -264,16 +348,57 @@ def monte_carlo(teams, sims, locked):
 def bar(p, width=20):
     return "█" * round(p * width) + "·" * (width - round(p * width))
 
-def cmd_match(teams, args, locked):
+def render_intelligence_notes(teams, a, b, context):
+    lines = []
+    for code in (a, b):
+        delta = teams[code].get("_intel_elo_delta", 0.0)
+        notes = teams[code].get("_intel_notes", [])
+        if abs(delta) > 0.001 or notes:
+            parts = []
+            if abs(delta) > 0.001:
+                parts.append(f"Elo {delta:+.0f}")
+            parts.extend(notes[:2])
+            lines.append(f"   {cn(teams, code)}：{'；'.join(parts)}")
+    gd = context.get("goal_delta", {})
+    da, db = gd.get(a, 0.0), gd.get(b, 0.0)
+    if abs(da) > 0.005 or abs(db) > 0.005:
+        lines.append(f"   单场进球修正：{cn(teams, a)} {da:+.2f}，{cn(teams, b)} {db:+.2f}（已按情报置信度折算）")
+    for note in context.get("notes", []):
+        lines.append(f"   - {note}")
+    for factor in context.get("factors", []):
+        if isinstance(factor, dict):
+            team = str(factor.get("team", "")).upper()
+            label = cn(teams, team) if team in teams else ""
+            summary = factor.get("summary") or factor.get("note") or factor.get("detail")
+            impact = factor.get("impact")
+            if summary:
+                prefix = f"{label}：" if label else ""
+                suffix = f"（{impact}）" if impact else ""
+                lines.append(f"   - {prefix}{summary}{suffix}")
+        elif factor:
+            lines.append(f"   - {factor}")
+    if lines:
+        print("   赛前情报修正（Agent 快照）:")
+        for line in lines[:8]:
+            print(line)
+
+def cmd_match(teams, args, locked, intelligence):
     a = resolve(teams, args.team_a); b = resolve(teams, args.team_b)
     ha = None if not args.neutral else False
     hb = None if not args.neutral else False
-    la, lb = expected_goals(teams, a, b, ha, hb)
+    intel = match_intelligence(intelligence, a, b)
+    goal_delta = intel.get("goal_delta", {})
+    la, lb = expected_goals(
+        teams, a, b, ha, hb,
+        goal_delta.get(a, 0.0),
+        goal_delta.get(b, 0.0),
+    )
     pw, pd, pl, scores = outcome_probs(la, lb)
     pw, pd, pl = apply_probability_shrink(pw, pd, pl)
     na, nb = cn(teams, a), cn(teams, b)
     print(f"\n⚽ {na}  vs  {nb}   （理性模型 · 泊松 · 含足球随机性）")
     print(f"   预期进球  {na} {la:.2f} - {lb:.2f} {nb}")
+    render_intelligence_notes(teams, a, b, intel)
     print(f"   {na}胜  {pw*100:5.1f}%  {bar(pw)}")
     print(f"   平局      {pd*100:5.1f}%  {bar(pd)}")
     print(f"   {nb}胜  {pl*100:5.1f}%  {bar(pl)}")
@@ -282,7 +407,7 @@ def cmd_match(teams, args, locked):
         print(f"     {na} {i}-{j} {nb}   {p*100:4.1f}%")
     print()
 
-def cmd_group(teams, args, locked):
+def cmd_group(teams, args, locked, intelligence=None):
     letter = args.team_a.upper()
     gm = groups_map(teams)
     if letter not in gm:
@@ -316,7 +441,7 @@ def cmd_group(teams, args, locked):
     likely = sorted(codes, key=lambda c: rank_pts[c])
     print("   预测排名: " + " > ".join(cn(teams, c) for c in likely) + "\n")
 
-def cmd_champion(teams, args, locked):
+def cmd_champion(teams, args, locked, intelligence=None):
     sims = args.sims or 10000
     print(f"\n🔮 正在模拟整届赛事 {sims} 次（含足球随机性）…")
     stat = monte_carlo(teams, sims, locked)
@@ -329,7 +454,7 @@ def cmd_champion(teams, args, locked):
               f"{s['sf']*100:6.1f}%{s['qf']*100:6.1f}%{s['adv']*100:6.1f}%")
     print()
 
-def cmd_bracket(teams, args, locked):
+def cmd_bracket(teams, args, locked, intelligence=None):
     seeds = build_field(teams, locked)
     champ, _, _, rounds = simulate_knockout(teams, seeds, locked)
     print("\n🗺  一次随机抽样的淘汰赛走势（单次模拟，仅供参考）")
@@ -363,9 +488,11 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
     teams = load_teams()
+    intelligence = load_intelligence()
+    teams = apply_intelligence_to_teams(teams, intelligence)
     locked = load_locked()
     {"match": cmd_match, "group": cmd_group,
-     "champion": cmd_champion, "bracket": cmd_bracket}[args.cmd](teams, args, locked)
+     "champion": cmd_champion, "bracket": cmd_bracket}[args.cmd](teams, args, locked, intelligence)
 
 if __name__ == "__main__":
     main()
