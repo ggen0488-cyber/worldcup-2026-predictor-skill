@@ -16,6 +16,9 @@ Usage:
 """
 import json, math, argparse, os, hashlib
 
+MODEL_VERSION = "2026.2"
+ADVISORY = "预测结果仅供参考，请理性观赛。"
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEAMS_PATH = os.path.join(BASE, "references", "teams.json")
 HEX_PATH = os.path.join(BASE, "references", "hexagrams.json")
@@ -71,6 +74,16 @@ def resolve(teams, key):
 
 def cn(teams, code):
     return teams[code].get("name_cn", code)
+
+def team_json(teams, code):
+    return {
+        "code": code,
+        "name": teams[code]["name"],
+        "name_cn": cn(teams, code),
+        "elo": teams[code].get("elo"),
+        "group": teams[code].get("group"),
+        "color": teams[code].get("color"),
+    }
 
 def element_of(teams, code):
     return COLOR_ELEMENT.get(teams[code].get("color", ""), "土")
@@ -270,8 +283,48 @@ def render(teams, a, b, date, items, hmap, context=None):
     print(f"【综合】{verdict}")
     print(f"        气运修正因子 = {factor:+.3f}（利{na}为正，约 ±5% 上限）")
     print("=" * 44)
+    print(f"提醒：{ADVISORY}")
     print()
     return factor
+
+def divination_payload(teams, a, b, date, hmap, context=None):
+    factor, d = qi_factor(teams, a, b, date, hmap)
+    ben, bh = d["ben"], d["bh"]
+    ea, eb = d["ea"], d["eb"]
+    wl, wnote = reading_wuxing(ea, eb)
+    zl, znote = reading_zodiac(ea, eb)
+    nl, nnote = reading_numerology(teams, a, b, date)
+    if factor > 0.012:
+        verdict = {"direction": "home", "label": f"卦象偏向 {cn(teams, a)}"}
+    elif factor < -0.012:
+        verdict = {"direction": "away", "label": f"卦象偏向 {cn(teams, b)}"}
+    else:
+        verdict = {"direction": "balanced", "label": "气运胶着，胜负在五五之间"}
+    return {
+        "model_version": MODEL_VERSION,
+        "command": "divination",
+        "advisory": ADVISORY,
+        "teams": {"home": team_json(teams, a), "away": team_json(teams, b)},
+        "date_key": date,
+        "context": context or {},
+        "hexagram": {
+            "primary": {"symbol": ben["sym"], "name": ben["name"], "judge": ben["judge"], "luck": ben["luck"], "lines": d["lines"]},
+            "changed": {"symbol": bh["sym"], "name": bh["name"], "judge": bh["judge"], "luck": bh["luck"], "lines": d["bian"]},
+            "changing_lines": [pos + 1 for pos in d["changing"]],
+        },
+        "five_elements": {"home": ea, "away": eb, "score": wl, "reason": wnote},
+        "zodiac": {"score": zl, "reason": znote},
+        "numerology": {"score": nl, "reason": nnote},
+        "fortune_factor": factor,
+        "verdict": verdict,
+        "reading_reasons": [
+            f"本卦 {ben['name']} 代表当前态势：{ben['judge']}",
+            f"变卦 {bh['name']} 代表后续走势：{bh['judge']}" if d["changing"] else "无变爻，走势更偏稳定。",
+            wnote,
+            znote,
+            nnote,
+        ],
+    }
 
 # ---------------------------------------------------------------- main
 def main():
@@ -280,6 +333,7 @@ def main():
     p.add_argument("team_b")
     p.add_argument("--date", default=None, help="MMDD，影响起卦；未传时优先使用 Agent 起卦背景快照，否则默认 0617")
     p.add_argument("--factor", action="store_true", help="只打印气运修正因子")
+    p.add_argument("--json", action="store_true", help="输出结构化 JSON，供 Agent 生成 HTML 报告")
     args = p.parse_args()
     teams = load_teams()
     items, hmap = load_hex()
@@ -288,7 +342,19 @@ def main():
     date = normalize_date(args.date) if args.date else context_date(context)
     if args.factor:
         f, _ = qi_factor(teams, a, b, date, hmap)
-        print(f"{f:+.4f}")
+        if args.json:
+            print(json.dumps({
+                "model_version": MODEL_VERSION,
+                "command": "divination_factor",
+                "advisory": ADVISORY,
+                "teams": {"home": team_json(teams, a), "away": team_json(teams, b)},
+                "date_key": date,
+                "fortune_factor": f,
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(f"{f:+.4f}")
+    elif args.json:
+        print(json.dumps(divination_payload(teams, a, b, date, hmap, context), ensure_ascii=False, indent=2))
     else:
         render(teams, a, b, date, items, hmap, context)
 

@@ -22,6 +22,7 @@ python3 "$SKILL_DIR/scripts/predict.py" group C --sims 5000
 python3 "$SKILL_DIR/scripts/predict.py" champion --sims 10000 --seed 7
 python3 "$SKILL_DIR/scripts/predict.py" route 阿根廷 --sims 5000 --seed 7
 python3 "$SKILL_DIR/scripts/predict.py" bracket --seed 7
+python3 "$SKILL_DIR/scripts/predict.py" match 阿根廷 巴西 --json
 ```
 
 - 球队名支持代码（`ARG`）、英文（`Argentina`）或中文（`阿根廷`）。
@@ -29,6 +30,7 @@ python3 "$SKILL_DIR/scripts/predict.py" bracket --seed 7
 - `group` 输出晋级 32 强概率，已纳入 8 个最佳第三名。
 - `route` 输出某队完整晋级路线概率、每轮到达概率和常见潜在对手。
 - `champion`/`group` 可调 `--sims`；`--seed` 用于复现；单场加 `--neutral` 可去掉东道主加成。
+- 所有理性命令支持 `--json`，用于让 Agent 稳定生成 HTML 报告，不需要解析中文文本。
 - 足球偶然性已默认进入模型：泊松比分抽样 + 单场状态冲击 + 胜平负概率收缩，不需要额外参数。
 - `bracket` 输出一次抽样的每轮淘汰赛路径，当前使用简化蛇形种子对阵，非 FIFA 官方槽位映射。
 - 预测脚本不联网抓数据；若存在 `data/live/teams.json`、`data/live/results.json` 或 `data/live/intelligence.json`，会优先读取这些由 Agent 保存的快照。
@@ -37,6 +39,7 @@ python3 "$SKILL_DIR/scripts/predict.py" bracket --seed 7
 ```bash
 python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西
 python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --factor
+python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --json
 ```
 三种玩法（按用户意图选）：**纯玄学** / **科学+玄学并列** / **玄学加权**（把 `--factor` 叠加到泊松胜率，得"开过光的概率"）。详见 `references/divination.md`。
 玄学脚本可读取 `data/live/divination_context.json` 中由 Agent 保存的起卦背景，例如比赛时间、地点、问题、颜色象意和资料来源；这些资料只用于确定起卦语境，不证明玄学可靠。
@@ -48,13 +51,14 @@ python3 "$SKILL_DIR/scripts/divination.py" 阿根廷 巴西 --factor
 4. 如果是当前理性单场预测，继续从多个方面收集两队赛前情报：伤停/停赛、预计首发、近期状态、赛程体能、场地天气、战术对位、比赛动机、赔率或评级变化。按 `references/intelligence.md` 保存 `data/live/intelligence.json`，并保留来源、采集时间、置信度、冲突说明和赛制/阶段。
 5. 调用脚本，脚本会优先读取 `data/live/` 快照；若没有 live 快照，则回退到样例数据。`intelligence.json` 是可选快照：团队级 `elo_delta` 会影响所有理性模拟，指定对阵的 `goal_delta` 当前只影响 `match A B` 单场命令。
 6. 如果用户明确要求玄学，Agent 可以收集比赛日期、开球时间、举办城市、场地、双方颜色/象征和用户问题，按 `references/divination.md` 保存 `data/live/divination_context.json`；不要把伤停、阵容、赔率等理性情报当作玄学可靠性的证据。
-7. 保留脚本的中文概率表格和“预测原因”说明，再补一两句精炼解读；单场预测要概括关键情报依据和不确定点。如果用户强调足球偶然性，说明模型默认已考虑冷门路径。
+7. 保留脚本的中文概率表格和“预测原因”说明，或优先使用 `--json` 的结构化结果生成 HTML；单场预测要概括关键情报依据和不确定点。如果用户强调足球偶然性，说明模型默认已考虑冷门路径。
 8. 按 `references/html_report.md` 由 Agent 直接生成自包含 HTML 报告，保存到 `reports/`，并自动用默认浏览器打开；不要调用额外 HTML 生成脚本。HTML 必须显示“为什么这样预测”的原因区。若包含玄学预测，还必须清楚展示本卦、变卦、变爻、五行/生肖/命理依据、气运因子和断语原因。
 9. 涉及整届模拟时优先用 `--sims 10000`；需要快速反馈可降到 `2000`；需要复现时加 `--seed`。
 
 ## 重要约束
 - 不得暗示这是 FIFA 官方工具；不要使用 FIFA 官方 logo、赛事视觉、字体或其他受保护品牌资产。
 - 只说**概率**，不说"必胜/一定"；区分"理性"与"玄学"两类来源。
+- 所有最终结果都要提醒用户：预测结果仅供参考，请理性观赛。
 - 单场输出必须突出概率最高的赛果方向作为主预测结果；其他比分可以展示概率，但只能作为比分分布参考，不得同时包装成另一套主预测。
 - 积分赛/小组赛允许胜、平、负三种结果；淘汰赛最终只有晋级方，若常规时间平局倾向最高，需要额外给出加时/点球决胜说明和点球比分预测。
 - 预测出线时要给出小组排名、晋级概率、前二概率、小组第一概率和最佳第三路径；预测晋级路线时要给出完整可能路径、每轮概率和关键风险。

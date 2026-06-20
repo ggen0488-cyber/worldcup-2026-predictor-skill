@@ -16,10 +16,13 @@ Usage:
   predict.py bracket                   # one sampled knockout bracket with every round
 
 Team args accept code (ARG), English (Argentina) or Chinese (阿根廷).
-Common flags: --sims N  --seed N  --neutral  --knockout
+Common flags: --sims N  --seed N  --neutral  --knockout  --json
 """
 import json, math, random, argparse, os
 from collections import defaultdict
+
+MODEL_VERSION = "2026.2"
+ADVISORY = "预测结果仅供参考，请理性观赛。"
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEAMS_PATH = os.path.join(BASE, "references", "teams.json")
@@ -28,18 +31,21 @@ LIVE_TEAMS_PATH = os.path.join(BASE, "data", "live", "teams.json")
 LIVE_RESULTS_PATH = os.path.join(BASE, "data", "live", "results.json")
 LIVE_INTELLIGENCE_PATH = os.path.join(BASE, "data", "live", "intelligence.json")
 
-AVG_GOALS = 2.6      # league-average total goals per match
-HOME_ADV = 0.35      # extra expected goals for a host nation
-SUP_SCALE = 120.0    # Elo points per ~1 goal of supremacy
+AVG_GOALS = 2.6      # tournament-style average total goals per match
+HOME_ADV = 0.22      # extra expected goals for a host nation
+SUP_SCALE = 180.0    # Elo points per ~1 goal of supremacy
+GOAL_SUPREMACY_CAP = 2.2
+MIN_EXPECTED_GOALS = 0.25
+KNOCKOUT_GOAL_MULTIPLIER = 0.92
 MAX_GOALS = 8        # truncation for the scoreline matrix
 EXPECTED_GROUPS = tuple("ABCDEFGHIJKL")
 EXPECTED_TEAMS = 48
 MAX_ELO_INTEL_DELTA = 80.0
 MAX_GOAL_INTEL_DELTA = 0.35
 
-MATCH_SHOCK_SD = 0.28        # one-match form/tactics/noise shock
-PROBABILITY_SHRINK = 0.10    # shrink headline W/D/L odds toward a football baseline
-NEUTRAL_OUTCOME = (0.37, 0.26, 0.37)
+MATCH_SHOCK_SD = 0.35        # one-match form/tactics/noise shock
+PROBABILITY_SHRINK = 0.14    # shrink headline W/D/L odds toward a football baseline
+NEUTRAL_OUTCOME = (0.36, 0.28, 0.36)
 SHOCK_POINTS = [(-2.0, 0.0545), (-1.0, 0.2442), (0.0, 0.4026), (1.0, 0.2442), (2.0, 0.0545)]
 
 def clamp(value, low, high):
@@ -50,6 +56,35 @@ def as_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+def simulation_error_margin(sims, p=0.5):
+    if sims <= 0:
+        return 0.0
+    return 1.96 * math.sqrt(max(0.0, p * (1 - p)) / sims)
+
+def emit_json(payload):
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+def print_advisory(prefix="   "):
+    print(f"{prefix}提醒：{ADVISORY}")
+
+def team_json(teams, code):
+    return {
+        "code": code,
+        "name": teams[code]["name"],
+        "name_cn": cn(teams, code),
+        "elo": round(as_float(teams[code].get("elo")), 1),
+        "group": teams[code].get("group"),
+        "host": bool(teams[code].get("host", False)),
+    }
+
+def score_json(teams, a, b, score, probability):
+    return {
+        "home": score[0],
+        "away": score[1],
+        "label": f"{cn(teams, a)} {score[0]}-{score[1]} {cn(teams, b)}",
+        "probability": probability,
+    }
 
 # ---------------------------------------------------------------- data loading
 def load_teams():
@@ -188,10 +223,18 @@ def cn(teams, code):
 def expected_goals(teams, a, b, host_a=None, host_b=None, goal_delta_a=0.0, goal_delta_b=0.0):
     if host_a is None: host_a = teams[a].get("host", False)
     if host_b is None: host_b = teams[b].get("host", False)
-    sup = (teams[a]["elo"] - teams[b]["elo"]) / SUP_SCALE
+    sup = clamp((teams[a]["elo"] - teams[b]["elo"]) / SUP_SCALE, -GOAL_SUPREMACY_CAP, GOAL_SUPREMACY_CAP)
     la = AVG_GOALS / 2 + sup / 2 + (HOME_ADV if host_a else 0) + goal_delta_a
     lb = AVG_GOALS / 2 - sup / 2 + (HOME_ADV if host_b else 0) + goal_delta_b
-    return max(0.15, la), max(0.15, lb)
+    return max(MIN_EXPECTED_GOALS, la), max(MIN_EXPECTED_GOALS, lb)
+
+def scale_goal_total(la, lb, multiplier):
+    total = la + lb
+    if total <= 0:
+        return la, lb
+    target = max(MIN_EXPECTED_GOALS * 2, total * multiplier)
+    scale = target / total
+    return max(MIN_EXPECTED_GOALS, la * scale), max(MIN_EXPECTED_GOALS, lb * scale)
 
 def _pmf(k, lam):
     return math.exp(-lam) * lam ** k / math.factorial(k)
@@ -200,8 +243,8 @@ def outcome_probs(la, lb):
     pw = pd = pl = 0.0
     score_probs = defaultdict(float)
     for z, weight in SHOCK_POINTS:
-        sla = max(0.15, la + z * MATCH_SHOCK_SD / 2)
-        slb = max(0.15, lb - z * MATCH_SHOCK_SD / 2)
+        sla = max(MIN_EXPECTED_GOALS, la + z * MATCH_SHOCK_SD / 2)
+        slb = max(MIN_EXPECTED_GOALS, lb - z * MATCH_SHOCK_SD / 2)
         for i in range(MAX_GOALS + 1):
             for j in range(MAX_GOALS + 1):
                 p = weight * _pmf(i, sla) * _pmf(j, slb)
@@ -209,6 +252,10 @@ def outcome_probs(la, lb):
                 if i > j: pw += p
                 elif i == j: pd += p
                 else: pl += p
+    total = sum(score_probs.values())
+    if total > 0:
+        pw, pd, pl = pw / total, pd / total, pl / total
+        score_probs = {score: probability / total for score, probability in score_probs.items()}
     best = sorted(score_probs.items(), key=lambda x: -x[1])
     return pw, pd, pl, best
 
@@ -290,7 +337,7 @@ def apply_probability_shrink(pw, pd, pl):
 def apply_match_shock(la, lb):
     """Model one-match form/tactics/variance shock before sampling goals."""
     shock = random.gauss(0.0, MATCH_SHOCK_SD)
-    return max(0.15, la + shock / 2), max(0.15, lb - shock / 2)
+    return max(MIN_EXPECTED_GOALS, la + shock / 2), max(MIN_EXPECTED_GOALS, lb - shock / 2)
 
 def _sample(lam):
     L = math.exp(-lam); k = 0; p = 1.0
@@ -307,6 +354,8 @@ def play(teams, a, b, locked, knockout=False, stage="SIM"):
         ga, gb = (hg, ag) if home == a else (ag, hg)
     else:
         la, lb = expected_goals(teams, a, b)
+        if knockout:
+            la, lb = scale_goal_total(la, lb, KNOCKOUT_GOAL_MULTIPLIER)
         la, lb = apply_match_shock(la, lb)
         ga, gb = _sample(la), _sample(lb)
     if not knockout:
@@ -462,6 +511,8 @@ def cmd_match(teams, args, locked, intelligence):
         goal_delta.get(a, 0.0),
         goal_delta.get(b, 0.0),
     )
+    if args.knockout:
+        la, lb = scale_goal_total(la, lb, KNOCKOUT_GOAL_MULTIPLIER)
     pw, pd, pl, all_scores = outcome_probs(la, lb)
     pw, pd, pl = apply_probability_shrink(pw, pd, pl)
     direction = outcome_direction(pw, pd, pl)
@@ -471,19 +522,62 @@ def cmd_match(teams, args, locked, intelligence):
     na, nb = cn(teams, a), cn(teams, b)
     direction_text = {"home": f"{na}略占优", "draw": "平局倾向最强", "away": f"{nb}略占优"}[direction]
     match_label = "淘汰赛模型" if args.knockout else "积分赛/常规时间模型"
-    print(f"\n⚽ {na}  vs  {nb}   （理性模型 · 泊松 · {match_label} · 含足球随机性）")
-    print(f"   预期进球  {na} {la:.2f} - {lb:.2f} {nb}")
     context_format = intel.get("competition_context", {}).get("format")
-    if context_format == "knockout" and not args.knockout:
-        print("   ⚠️ 情报快照显示可能是淘汰赛，请确认是否应使用 --knockout。")
-    if context_format == "points" and args.knockout:
-        print("   ⚠️ 情报快照显示可能是积分赛，请确认是否应移除 --knockout。")
     adv_probs = None
+    penalty_payload = None
+    main_payload = None
     if args.knockout:
         penalty_winner, pen_a, pen_b, pen_pa = predicted_penalty_score(teams, a, b)
         adv_a, adv_b, _ = knockout_advancement_probabilities(teams, a, b, pw, pd, pl)
         adv = a if adv_a >= adv_b else b
         adv_probs = (adv_a, adv_b)
+        main_payload = {
+            "type": "advancement",
+            "team": team_json(teams, adv),
+            "label": f"{cn(teams, adv)}晋级",
+            "regulation_direction": direction,
+            "regulation_score": score_json(teams, a, b, main_score, main_score_prob),
+            "advancement_probabilities": {a: adv_a, b: adv_b},
+        }
+        penalty_payload = {
+            "winner": team_json(teams, penalty_winner),
+            "home_penalties": pen_a,
+            "away_penalties": pen_b,
+            "home_penalty_win_probability": pen_pa,
+        }
+    else:
+        main_payload = {
+            "type": "outcome",
+            "direction": direction,
+            "label": direction_text,
+            "score": score_json(teams, a, b, main_score, main_score_prob),
+        }
+    reasons = match_reasons(teams, a, b, la, lb, direction, args, intel, adv_probs)
+    if args.json:
+        payload = {
+            "model_version": MODEL_VERSION,
+            "command": "match",
+            "mode": "knockout" if args.knockout else "points_or_regulation",
+            "advisory": ADVISORY,
+            "teams": {"home": team_json(teams, a), "away": team_json(teams, b)},
+            "expected_goals": {a: round(la, 4), b: round(lb, 4)},
+            "probabilities": {"home_win": pw, "draw": pd, "away_win": pl},
+            "main_prediction": main_payload,
+            "modal_score": score_json(teams, a, b, modal_score, modal_score_prob),
+            "score_distribution": [score_json(teams, a, b, score, probability) for score, probability in all_scores[:10]],
+            "penalty_path": penalty_payload,
+            "intelligence": intel,
+            "reasons": reasons,
+        }
+        emit_json(payload)
+        return
+    print(f"\n⚽ {na}  vs  {nb}   （理性模型 · 泊松 · {match_label} · 含足球随机性）")
+    print(f"   预期进球  {na} {la:.2f} - {lb:.2f} {nb}")
+    if context_format == "knockout" and not args.knockout:
+        print("   ⚠️ 情报快照显示可能是淘汰赛，请确认是否应使用 --knockout。")
+    if context_format == "points" and args.knockout:
+        print("   ⚠️ 情报快照显示可能是积分赛，请确认是否应移除 --knockout。")
+    if args.knockout:
         print(f"   主预测结果  {cn(teams, adv)}晋级（{na}晋级 {adv_a*100:5.1f}% / {nb}晋级 {adv_b*100:5.1f}%）")
         print(f"   常规时间倾向  {direction_text}（胜/平/负三项中概率最高）")
         print(f"   常规时间比分  {na} {main_score[0]}-{main_score[1]} {nb}   {main_score_prob*100:4.1f}%")
@@ -497,7 +591,7 @@ def cmd_match(teams, args, locked, intelligence):
               f"（{na}点球胜率 {pen_pa*100:4.1f}%）")
     render_intelligence_notes(teams, a, b, intel)
     print("   预测原因:")
-    for reason in match_reasons(teams, a, b, la, lb, direction, args, intel, adv_probs):
+    for reason in reasons:
         print(f"     - {reason}")
     print(f"   {na}胜  {pw*100:5.1f}%  {bar(pw)}")
     print(f"   平局      {pd*100:5.1f}%  {bar(pd)}")
@@ -505,6 +599,7 @@ def cmd_match(teams, args, locked, intelligence):
     print("   比分分布 Top5:")
     for (i, j), p in scores:
         print(f"     {na} {i}-{j} {nb}   {p*100:4.1f}%")
+    print_advisory()
     print()
 
 def cmd_group(teams, args, locked, intelligence=None):
@@ -534,24 +629,78 @@ def cmd_group(teams, args, locked, intelligence=None):
                 first[c] += 1
             if c in best_thirds:
                 third_adv[c] += 1
+    ordered = sorted(codes, key=lambda c: -adv[c])
+    predicted = sorted(codes, key=lambda c: rank_pts[c])
+    team_rows = []
+    for c in ordered:
+        team_rows.append({
+            "team": team_json(teams, c),
+            "advance": adv[c] / sims,
+            "top_two": top2[c] / sims,
+            "group_winner": first[c] / sims,
+            "best_third": third_adv[c] / sims,
+            "rank_probabilities": {
+                "1": rank_counts[c][0] / sims,
+                "2": rank_counts[c][1] / sims,
+                "3": rank_counts[c][2] / sims,
+                "4": rank_counts[c][3] / sims,
+            },
+        })
+    error = simulation_error_margin(sims)
+    if args.json:
+        emit_json({
+            "model_version": MODEL_VERSION,
+            "command": "group",
+            "group": letter,
+            "sims": sims,
+            "simulation_error_95_max": error,
+            "advisory": ADVISORY,
+            "teams": team_rows,
+            "predicted_order": [team_json(teams, c) for c in predicted],
+            "reasons": ["基于整届小组同步模拟，排名按积分、净胜球、进球数和并列随机项生成。", "晋级概率已包含8个最佳第三名路径。"],
+        })
+        return
     print(f"\n🏟  {letter} 组  晋级32强概率（{sims} 次模拟，含8个最佳第三名与足球随机性）")
-    order = sorted(codes, key=lambda c: -adv[c])
-    for c in order:
+    print(f"   注：单项概率约有 ±{error*100:.1f} 个百分点模拟误差；{ADVISORY}")
+    for c in ordered:
         print(f"   {cn(teams,c):<10} 晋级 {adv[c]/sims*100:5.1f}%  前二 {top2[c]/sims*100:5.1f}%"
               f"  小组第一 {first[c]/sims*100:5.1f}%  最佳第三 {third_adv[c]/sims*100:5.1f}%"
               f"  {bar(adv[c]/sims)}")
         print(f"      排名概率  第1 {rank_counts[c][0]/sims*100:5.1f}%  第2 {rank_counts[c][1]/sims*100:5.1f}%"
               f"  第3 {rank_counts[c][2]/sims*100:5.1f}%  第4 {rank_counts[c][3]/sims*100:5.1f}%")
-    likely = sorted(codes, key=lambda c: rank_pts[c])
-    print("   预测排名: " + " > ".join(cn(teams, c) for c in likely) + "\n")
+    print("   预测排名: " + " > ".join(cn(teams, c) for c in predicted) + "\n")
     print("   预测原因: 基于整届小组同步模拟，排名按积分、净胜球、进球数和并列随机项生成；晋级概率已包含8个最佳第三名路径。\n")
 
 def cmd_champion(teams, args, locked, intelligence=None):
     sims = args.sims or 10000
-    print(f"\n🔮 正在模拟整届赛事 {sims} 次（含足球随机性）…")
+    if not args.json:
+        print(f"\n🔮 正在模拟整届赛事 {sims} 次（含足球随机性）…")
     stat = monte_carlo(teams, sims, locked)
     ranked = sorted(teams, key=lambda c: -stat[c]["champ"])
+    error = simulation_error_margin(sims)
+    rows = []
+    for c in ranked:
+        rows.append({
+            "team": team_json(teams, c),
+            "champion": stat[c]["champ"],
+            "final": stat[c]["final"],
+            "semifinal": stat[c]["sf"],
+            "quarterfinal": stat[c]["qf"],
+            "round_of_32": stat[c]["adv"],
+        })
+    if args.json:
+        emit_json({
+            "model_version": MODEL_VERSION,
+            "command": "champion",
+            "sims": sims,
+            "simulation_error_95_max": error,
+            "advisory": ADVISORY,
+            "teams": rows,
+            "reasons": ["整届赛事蒙特卡洛模拟，包含小组赛、最佳第三名和淘汰赛随机性。", "当前淘汰赛对阵仍为简化蛇形种子近似。"],
+        })
+        return
     print(f"\n🏆 2026 世界杯夺冠概率榜（{sims} 次蒙特卡洛）")
+    print(f"   注：单项概率约有 ±{error*100:.1f} 个百分点模拟误差；{ADVISORY}")
     print(f"   {'球队':<10}{'夺冠':>7}{'进决赛':>8}{'4强':>7}{'8强':>7}{'32强':>7}")
     for c in ranked[:24]:
         s = stat[c]
@@ -581,7 +730,35 @@ def cmd_route(teams, args, locked, intelligence=None):
                     opponent = b if a == target else a
                     opponents[stage][opponent] += 1
                     break
+    error = simulation_error_margin(sims)
+    stages = []
+    for stage in stage_order:
+        total = reach[stage]
+        common = sorted(opponents[stage].items(), key=lambda item: -item[1])[:4] if total else []
+        stages.append({
+            "stage": stage,
+            "label": labels[stage],
+            "reach_probability": total / sims,
+            "common_opponents": [
+                {"team": team_json(teams, code), "conditional_probability": count / total}
+                for code, count in common
+            ] if total else [],
+        })
+    if args.json:
+        emit_json({
+            "model_version": MODEL_VERSION,
+            "command": "route",
+            "target": team_json(teams, target),
+            "sims": sims,
+            "simulation_error_95_max": error,
+            "advisory": ADVISORY,
+            "stages": stages,
+            "champion": champion / sims,
+            "reasons": ["路线概率来自完整小组赛+淘汰赛联合模拟。", "潜在对手按目标球队实际相遇次数统计。", "当前淘汰赛对阵仍为简化蛇形种子近似。"],
+        })
+        return
     print(f"\n🧭 {cn(teams, target)} 晋级路线概率（{sims} 次模拟，含足球随机性）")
+    print(f"   注：单项概率约有 ±{error*100:.1f} 个百分点模拟误差；{ADVISORY}")
     print(f"   进入32强 {reach['R32']/sims*100:5.1f}%  进入16强 {reach['R16']/sims*100:5.1f}%"
           f"  进入8强 {reach['QF']/sims*100:5.1f}%  进入4强 {reach['SF']/sims*100:5.1f}%"
           f"  进决赛 {reach['F']/sims*100:5.1f}%  夺冠 {champion/sims*100:5.1f}%")
@@ -598,6 +775,32 @@ def cmd_route(teams, args, locked, intelligence=None):
 def cmd_bracket(teams, args, locked, intelligence=None):
     seeds = build_field(teams, locked)
     champ, _, _, rounds = simulate_knockout(teams, seeds, locked)
+    if args.json:
+        emit_json({
+            "model_version": MODEL_VERSION,
+            "command": "bracket",
+            "advisory": ADVISORY,
+            "seeds": [team_json(teams, c) for c in seeds],
+            "champion": team_json(teams, champ),
+            "rounds": [
+                {
+                    "stage": stage,
+                    "matches": [
+                        {
+                            "home": team_json(teams, a),
+                            "away": team_json(teams, b),
+                            "score": {"home": ga, "away": gb},
+                            "winner": team_json(teams, w),
+                            "decided_by_penalties": ga == gb,
+                        }
+                        for a, b, ga, gb, w in matches
+                    ],
+                }
+                for stage, matches in rounds
+            ],
+            "notes": ["单次模拟仅供路径展示，不代表最高概率路径。", "当前使用简化蛇形种子对阵，非 FIFA 官方槽位映射。"],
+        })
+        return
     print("\n🗺  一次随机抽样的淘汰赛走势（单次模拟，仅供参考）")
     print(f"   32强: {len(seeds)} 队晋级，种子前八: " +
           "、".join(cn(teams, c) for c in seeds[:8]))
@@ -609,6 +812,7 @@ def cmd_bracket(teams, args, locked, intelligence=None):
             marker = "（点球）" if ga == gb else "晋级"
             print(f"     {cn(teams,a)} {ga}-{gb} {cn(teams,b)}  → {cn(teams,w)}{marker}")
     print(f"   🏆 本次模拟冠军: {cn(teams, champ)}\n")
+    print_advisory()
 
 # ---------------------------------------------------------------- main
 def main():
@@ -619,6 +823,7 @@ def main():
     p.add_argument("--sims", type=int, default=0)
     p.add_argument("--neutral", action="store_true")
     p.add_argument("--knockout", action="store_true", help="single match has no draw final outcome; show advancement and penalty path")
+    p.add_argument("--json", action="store_true", help="emit machine-readable JSON for Agent report generation")
     p.add_argument("--seed", type=int, default=None)
     args = p.parse_args()
     if args.sims < 0:

@@ -118,6 +118,7 @@ Copy-Item -Recurse -Force ".\worldcup-2026-predictor" "$HOME\.agents\skills\"
 - 从 `data/results.json` 锁定真实已完赛赛果。
 - 优先读取 AI Agent 保存到 `data/live/` 的最新数据快照。
 - 读取 AI Agent 保存的赛前情报快照，用伤停、阵容、近期状态、赛程体能、战术对位等信息做有界修正。
+- 提供 `--json` 结构化输出，方便 AI Agent 稳定生成 HTML 报告。
 - 引导 AI Agent 将最终预测结果生成为自包含本地 HTML 报告，首屏构建球场和真实比分牌风格预测展示，并自动在浏览器打开。
 - 玄学模式可读取 AI Agent 保存的起卦背景快照，用比赛日期、地点、颜色象意和用户问题确定娱乐语境。
 - 可选输出玄学趣味预测。
@@ -134,7 +135,9 @@ python "$SKILL_DIR/scripts/predict.py" group C --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" champion --sims 10000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" route ARG --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" bracket --seed 7
+python "$SKILL_DIR/scripts/predict.py" match ARG BRA --json
 python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
+python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617 --json
 ```
 
 球队输入支持代码（`ARG`）、英文名（`Argentina`）或中文名（`阿根廷`）。
@@ -156,8 +159,10 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 - 泊松比分抽样。
 - 单场状态、战术匹配、临场噪声冲击。
 - 胜/平/负概率向中性足球基线轻微收缩。
+- Elo 到进球差使用保守斜率和上限，避免强弱差被放大成不现实的大比分。
+- 淘汰赛会略微压低总进球预期，以反映风险规避。
 
-模型输出的是概率，不是确定性结论。高概率球队仍然可能在单场比赛中输球。
+模型输出的是概率，不是确定性结论。高概率球队仍然可能在单场比赛中输球。预测结果仅供参考，请理性观赛。
 
 ## 数据策略
 
@@ -179,7 +184,7 @@ python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
 
 ## HTML 报告
 
-预测完成后，Agent 应根据脚本输出和收集到的情报直接生成一个自包含 HTML 文件，默认保存到 `worldcup-2026-predictor/reports/` 并自动用默认浏览器打开。HTML 报告首屏应构建一个非品牌化球场场景，并用真实球场/转播比分牌风格突出显示概率最高的主预测结果、主预测比分和预测时间。报告还应展示比分分布 Top 5、预期进球、预测原因说明、赛前情报、战术对位、场景推演、来源和不确定性说明；如果包含玄学内容，必须与理性预测分区，讲清本卦、变卦、变爻、五行/生肖/命理、气运因子和断语原因。
+预测完成后，Agent 应优先使用脚本的 `--json` 输出和收集到的情报直接生成一个自包含 HTML 文件，默认保存到 `worldcup-2026-predictor/reports/` 并自动用默认浏览器打开。HTML 报告首屏应构建一个非品牌化球场场景，并用真实球场/转播比分牌风格突出显示概率最高的主预测结果、主预测比分和预测时间。报告还应展示比分分布 Top 5、预期进球、预测原因说明、模型版本、模拟误差、赛前情报、战术对位、场景推演、来源和不确定性说明；如果包含玄学内容，必须与理性预测分区，讲清本卦、变卦、变爻、五行/生肖/命理、气运因子和断语原因。报告应提醒“预测结果仅供参考，请理性观赛”。
 
 如果单一最高概率比分与最高概率赛果方向不一致，报告必须把最高概率赛果方向作为主预测结果，比分分布作为参考展示，不能给出两套互相冲突的主预测。
 
@@ -315,6 +320,7 @@ Change the destination to `$HOME\.claude\skills`, project-local `.agents\skills`
 - Lock real completed results from `data/results.json`.
 - Prefer fresh snapshots saved by an AI Agent under `data/live/`.
 - Read Agent-saved pre-match intelligence snapshots for bounded adjustments based on injuries, lineups, form, rest, tactics, and related context.
+- Provide `--json` structured output so AI Agents can generate HTML reports without parsing prose.
 - Guide the AI Agent to turn the final prediction into a self-contained local HTML report with a stadium scene and realistic scoreboard-style prediction display, then open it in the browser.
 - Let divination mode read Agent-saved context snapshots for match date, venue, colors/symbols, and user question as entertainment framing.
 - Optionally run divination-style prediction output.
@@ -331,7 +337,9 @@ python "$SKILL_DIR/scripts/predict.py" group C --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" champion --sims 10000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" route ARG --sims 5000 --seed 7
 python "$SKILL_DIR/scripts/predict.py" bracket --seed 7
+python "$SKILL_DIR/scripts/predict.py" match ARG BRA --json
 python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617
+python "$SKILL_DIR/scripts/divination.py" ARG BRA --date 0617 --json
 ```
 
 Team inputs accept codes (`ARG`), English names (`Argentina`), or Chinese names (`阿根廷`).
@@ -353,8 +361,10 @@ Football randomness is built in by default through:
 - Poisson score sampling.
 - A one-match form/tactics/noise shock.
 - Light win/draw/loss probability shrinkage toward a neutral football baseline.
+- Conservative Elo-to-goal conversion with a cap, reducing unrealistic blowout expectations.
+- A small knockout-stage total-goal reduction to reflect risk management.
 
-The model outputs probabilities, not certainties. A high-probability team can still lose a single match.
+The model outputs probabilities, not certainties. A high-probability team can still lose a single match. Treat predictions as reference only and watch rationally.
 
 ## Data Policy
 
@@ -376,7 +386,7 @@ The prediction script validates team completeness: exactly 48 teams, 12 groups f
 
 ## HTML Report
 
-After prediction, the Agent should directly generate a self-contained HTML file from the script output and collected intelligence, save it under `worldcup-2026-predictor/reports/`, and open it in the default browser. The first viewport should build a non-branded stadium scene and use a realistic stadium/broadcast scoreboard style to highlight the highest-probability main outcome, main score, and prediction time. The report should also show Top 5 score distribution, expected goals, prediction rationale, pre-match intelligence, tactical matchup, scenario paths, sources, and uncertainty notes. If divination content is included, it must be separated from rational prediction and explain the primary hexagram, changed hexagram, changing lines, Five Elements/zodiac/numerology signals, fortune factor, and reasoning behind the reading.
+After prediction, the Agent should generate a self-contained HTML file directly from the script's `--json` output and collected intelligence, save it under `worldcup-2026-predictor/reports/`, and open it in the default browser. The first viewport should build a non-branded stadium scene and use a realistic stadium/broadcast scoreboard style to highlight the highest-probability main outcome, main score, and prediction time. The report should also show Top 5 score distribution, expected goals, prediction rationale, model version, simulation error, pre-match intelligence, tactical matchup, scenario paths, sources, and uncertainty notes. If divination content is included, it must be separated from rational prediction and explain the primary hexagram, changed hexagram, changing lines, Five Elements/zodiac/numerology signals, fortune factor, and reasoning behind the reading. The report should remind users that predictions are for reference and should be watched rationally.
 
 If the single most likely score differs from the highest-probability outcome direction, the report must highlight the outcome direction as the main prediction and show scorelines only as distribution references.
 
@@ -384,7 +394,7 @@ This project does not provide an HTML generation script. The report is generated
 
 ## Divination Mode
 
-Divination mode is optional and for entertainment only. It is never used in the default rational model unless the user explicitly asks for it.
+Divination mode is optional. It is never used in the default rational model unless the user explicitly asks for it.
 
 ## License
 
